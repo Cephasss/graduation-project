@@ -1,0 +1,5 @@
+export GAZEBO_PLUGIN_PATH=~/projet/worldpublish/build:$GAZEBO_PLUGIN_PATH
+export GAZEBO_PLUGIN_PATH=~/projet/gazebo_gui_spawn/build:$GAZEBO_PLUGIN_PATH
+export GAZEBO_PLUGIN_PATH=~/projet/ginfo/build:$GAZEBO_PLUGIN_PATH
+export GAZEBO_PLUGIN_PATH=~/projet/sensor_info/build:$GAZEBO_PLUGIN_PATH
+export GAZEBO_PLUGIN_PATH=~/projet/get_border/build:$GAZEBO_PLUGIN_PATH
