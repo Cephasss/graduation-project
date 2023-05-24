@@ -16,9 +16,9 @@
 #include <random>
 #include <math.h>
 
-#define SOLUTION_NUM 70
+#define SOLUTION_NUM 50
 #define DEBUG false                 // Set true to print some intermediate infos
-#define MAX_TURN 70
+#define MAX_TURN 50
 
 #define ELITE_NUM 3
 
@@ -43,11 +43,11 @@ int power(int base, int pow);
 
 ignition::math::Vector3d gen_random_angle(ignition::math::Vector3d type);
 
-int angle_punish(std::vector<s_info*>* solution, int num_sen);
+int angle_punish(std::vector<s_info*>* solution, int num_sen, double mina, double maxa);
 
-bool check_angle(std::vector<s_info*>* solution,int num_sen);
+bool check_angle(std::vector<s_info*>* solution,int num_sen, double mina, double maxa);
 
-bool check_angle(std::vector<s_info> solution,int num_sen);
+bool check_angle(std::vector<s_info> solution,int num_sen, double mina, double maxa);
 
 int get_cross_index(std::vector<s_info> solution_a,std::vector<s_info> solution_b,int num_sen, int cro_pos);
 
@@ -111,8 +111,16 @@ namespace gazebo
       std::vector<ignition::math::Vector3d> border_points;
       std::vector<std::vector<ignition::math::Vector3d>> border_points_type;
       ignition::math::Vector3d type;
+      double min_angle = 0.2*M_PI;
+      double max_angle = 0.4*M_PI;
 
-
+      std::cout<<"Solution numbers: 50"<<std::endl;
+      std::cout<<"Maximum generations: 50"<<std::endl;
+      std::cout<<"Init cross proba: 0.7"<<std::endl;
+      std::cout<<"Init mutation proba: 0.1"<<std::endl;
+      std::cout<<"Adapt factor: 0.01"<<std::endl;
+      std::cout<<"Min yaw angle interval: "<< min_angle <<" rad"<<std::endl;
+      std::cout<<"Max yaw angle interval: "<< max_angle <<" rad"<<std::endl;
 
 
       // Get sensor pointers-------------------------------------------------------------------------------------------------------------------------------
@@ -293,11 +301,12 @@ namespace gazebo
                 }
               }
               s->model_pose.Rot().Euler(rot_vec);
-              // if (check_angle(world, this->model, s->model_pose)) break;
+              //if (check_angle(world, this->model, s->model_pose)) break;
               break;
             }
           }
-          if (check_angle(solution, sensor_model_num)) break;
+          if (check_angle(solution, sensor_model_num, min_angle, max_angle)) break;
+          // break;
         }
         // Calculate camera of lidar parameters------------------------------------------------------------------------------------------------------------
         for (auto s:*solution){
@@ -405,6 +414,7 @@ namespace gazebo
       
       // The optimization process--------------------------------------------------------------------------------------------------------------------------
       ignition::math::Vector3d sVec;
+      ignition::math::Vector3d sVec_c;
       std::cout<<"Starting optimization process..."<<std::endl;
       while (turn <= MAX_TURN){
         
@@ -426,24 +436,25 @@ namespace gazebo
           cover_ratio = 0;
           if (i==SOLUTION_NUM/3) std::cout<<"    33.3%..."<<std::endl;
           if (i==SOLUTION_NUM/3*2) std::cout<<"    66.7%..."<<std::endl;
-          for (int sz = 0; sz<=12; sz++){
+          for (int sz = 0; sz<=16; sz++){
             // std::cout<<sx<<std::endl;
             for (int sr = 1; sr<=36; sr++){
               // if (sr>=30 && sr<=50) continue;
               for (int stheta = -59; stheta<59; stheta++){
                 rot_vec.X() = 0;
-                rot_vec.X() = 0;
+                rot_vec.Y() = 0;
                 rot_vec.Z() = (double)stheta/25.0;
                 qtheta.Euler(rot_vec);
-                sVec.X() = (double)sr/3.0;
-                sVec.Y() = 0.0;
-                sVec.Z() = (double)sz/4.0;
-                sVec = qtheta.RotateVector(sVec);
+                sVec_c.X() = (double)sr/3.0;
+                sVec_c.Y() = 0.0;
+                sVec_c.Z() = (double)sz/4.0;
+                sVec_c = qtheta.RotateVector(sVec_c);
                 // Skip if too close or inside the car
                 // if (sVec.Z()<max_z && sVec.X()>min_x && sVec.X()<max_x && sVec.Y()>min_y && sVec.Y()<max_y) continue;
                 // Initiate a space point
                 multi_count = 0;
                 for (auto s:*solution){
+                  sVec = sVec_c;
                   sVec -= s->model_pose.Pos();
                   if (sVec.Length()<s->near || sVec.Length()>s->far) continue;
                   if (s->type=="camera"){
@@ -467,7 +478,7 @@ namespace gazebo
                     if (acos(sVec.Dot(s->nor1)/sVec.Length()) > s->lidar_fov.Radian()) continue;
                     // Redundancy check
                     if (multi_count){
-                      continue;
+                      // continue;
                       score_solutions[i]+=1/power(2,multi_count);
                     }else{
                       if (stheta<4.1) score_solutions[i]+=0.1;
@@ -480,7 +491,7 @@ namespace gazebo
               }
             }
           }
-          cover_ratio = cover_ratio / (45*13*121);
+          // cover_ratio = cover_ratio / (45*13*121);
           for (auto s1:*solution){
             for (auto s2:*solution){
               if(s1->model_name==s2->model_name) continue;
@@ -488,7 +499,7 @@ namespace gazebo
               score_solutions[i]-=2000;
             }
           }
-          score_solutions[i]-=angle_punish(solution, sensor_model_num);
+          score_solutions[i]-=angle_punish(solution, sensor_model_num, min_angle, max_angle);
           // std::cout<<score_solutions[i]<<std::endl;
           // score_solutions[i] = (0.5+0.5*cover_ratio) * score_solutions[i];
         }
@@ -539,13 +550,13 @@ namespace gazebo
             unchanged_turns++;
             MUT_PROBA+=(1-MUT_PROBA)*unchanged_turns*0.01 * (MAX_TURN-turn)/MAX_TURN;
             CRO_PROBA+=(1-CRO_PROBA)*unchanged_turns*0.01 * (MAX_TURN-turn)/MAX_TURN;
-            if (MUT_PROBA>=0.5) MUT_PROBA=0.5;
+            if (MUT_PROBA>=1) MUT_PROBA=1;
             if (CRO_PROBA>=1) CRO_PROBA=1;
           }else if(last_highest_score<score_solutions[0]-1.1){
             MUT_PROBA = MUT_PROBA*0.3;
             CRO_PROBA = CRO_PROBA*0.8;
-            if (MUT_PROBA<0.1) MUT_PROBA=0.1;
-            if (CRO_PROBA<0.7) CRO_PROBA=0.7;
+            if (MUT_PROBA<0.01) MUT_PROBA=0.01;
+            if (CRO_PROBA<0.3) CRO_PROBA=0.3;
             unchanged_turns = 0;
             last_highest_score = score_solutions[0];
           }
@@ -652,7 +663,8 @@ namespace gazebo
                 
                 
               }
-              if (check_angle(solution_a, sensor_model_num)) break;
+              if (check_angle(solution_a, sensor_model_num, min_angle, max_angle)) break;
+              // break;
             }
             tmp_score_solutions[tmp_solu_index] = 1;
             tmp_solu_list[tmp_solu_index++] = solution_a;
@@ -661,31 +673,31 @@ namespace gazebo
 
         // Determine the next generation
         int repete_flag=0;
+        int select_one = 0;
+        int select_two = 0;
         while (tmp_solu_index<SOLUTION_NUM){
+
           // std::cout<<tmp_solu_index<<std::endl;
           // Do selection process
-          if (select_factor){
-            select_factor--;
-            rand_num_a = (double)rand()/double(RAND_MAX);
-            for (int i=ELITE_NUM; i<SOLUTION_NUM; i++){
-              if(rand_num_a<=sel_proba[i]){
-                repete_flag=0;
-                for (int m=0; m<tmp_solu_index; m++){
-                  if ((int)tmp_score_solutions[m]==(int)score_solutions[i]) repete_flag=1;
-                }
-                if (repete_flag) continue;
-                // std::cout<<"    Select the "<<i+1<<" -th solution"<<std::endl;
-                for (int j=0; j<sensor_model_num; j++){
-                  solution_a[j] = (*solution_list[i]->at(j));
-                }
-                tmp_score_solutions[tmp_solu_index] = score_solutions[i];
-                tmp_solu_list[tmp_solu_index++] = solution_a;         // Insert the selected one into the new list for next generation
-                break;
-              }
+          // if (select_factor){
+            // select_factor--;
+          rand_num_a = (double)rand()/double(RAND_MAX);
+          for (int i=0; i<SOLUTION_NUM; i++){
+            if(rand_num_a<=sel_proba[i]){
+              select_one = i;
+              break;
             }
-          }else{
-            select_factor+=2;
           }
+          rand_num_a = (double)rand()/double(RAND_MAX);
+          for (int i=0; i<SOLUTION_NUM; i++){
+            if(rand_num_a<=sel_proba[i]){
+              select_two = i;
+              break;
+            }
+          }
+          // }else{
+          //   select_factor+=2;
+          // }
           if (tmp_solu_index==SOLUTION_NUM) break;                      // Each time after a process check the solution number limit
 
  
@@ -697,8 +709,10 @@ namespace gazebo
             rand_num_a = (SOLUTION_NUM-0.0001)*rand()/RAND_MAX;      // For equal proba we do some operations
             rand_num_b = (SOLUTION_NUM-0.0001)*rand()/RAND_MAX;
             for (int j=0; j<sensor_model_num; j++){
-                solution_a[j] = (*solution_list[(int)floor(rand_num_a)]->at(j));
-                solution_b[j] = (*solution_list[(int)floor(rand_num_b)]->at(j));
+                // solution_a[j] = (*solution_list[(int)floor(rand_num_a)]->at(j));
+                // solution_b[j] = (*solution_list[(int)floor(rand_num_b)]->at(j));
+                solution_a[j] = (*solution_list[select_one]->at(j));
+                solution_b[j] = (*solution_list[select_two]->at(j));
             }
             // std::cout<<" between "<<(int)floor(rand_num_a)+1<<" and "<<(int)floor(rand_num_b)+1<<std::endl;
             if (tmp_solu_index<=SOLUTION_NUM-2){
@@ -743,6 +757,32 @@ namespace gazebo
                 num_cro++;
                 tmp_solu_list[tmp_solu_index++] = solution_cross_a;
               }
+            }
+          }else{
+            repete_flag=0;
+            for (int m=0; m<tmp_solu_index; m++){
+              if ((int)tmp_score_solutions[m]==(int)score_solutions[select_one]) repete_flag=1;
+            }
+            if (!repete_flag){
+              // std::cout<<"    Select the "<<i+1<<" -th solution"<<std::endl;
+              for (int j=0; j<sensor_model_num; j++){
+                solution_a[j] = (*solution_list[select_one]->at(j));
+              }
+              tmp_score_solutions[tmp_solu_index] = score_solutions[select_one];
+              tmp_solu_list[tmp_solu_index++] = solution_a;         // Insert the selected one into the new list for next generation
+            }
+            if (tmp_solu_index==SOLUTION_NUM) break;  
+            repete_flag=0;
+            for (int m=0; m<tmp_solu_index; m++){
+              if ((int)tmp_score_solutions[m]==(int)score_solutions[select_two]) repete_flag=1;
+            }
+            if (!repete_flag){
+              // std::cout<<"    Select the "<<i+1<<" -th solution"<<std::endl;
+              for (int j=0; j<sensor_model_num; j++){
+                solution_a[j] = (*solution_list[select_two]->at(j));
+              }
+              tmp_score_solutions[tmp_solu_index] = score_solutions[select_two];
+              tmp_solu_list[tmp_solu_index++] = solution_a;         // Insert the selected one into the new list for next generation
             }
           }
           // std::cout<<"    Cross over"<<std::endl;
@@ -851,7 +891,8 @@ namespace gazebo
                   //if (check_angle(world, this->model, solution_a.at((int)rand_num_b).model_pose)) break;
                   break;
                 }
-                if (check_angle(solution_a, sensor_model_num)||check_count==1000) break;    // Avoid infinite loop
+                if (check_angle(solution_a, sensor_model_num, min_angle, max_angle)||check_count==1000) break;    // Avoid infinite loop
+                // break;
                 
               }
             }
@@ -933,6 +974,73 @@ namespace gazebo
                 }
               }
             }
+            
+            cover_ratio = 0;
+            double redun_ratio = 0;
+            int space_points = 0;
+            int redun_flag = 0;
+            ignition::math::Quaterniond qtheta;
+            for (int sz = 0; sz<=16; sz++){
+              // std::cout<<sx<<std::endl;
+              for (int sr = 1; sr<=36; sr++){
+                // if (sr>=30 && sr<=50) continue;
+                for (int stheta = -59; stheta<59; stheta++){
+                  space_points++;
+                  redun_flag = 0;
+                  rot_vec.X() = 0;
+                  rot_vec.Y() = 0;
+                  rot_vec.Z() = (double)stheta/25.0;
+                  qtheta.Euler(rot_vec);
+                  sVec_c.X() = (double)sr/3.0;
+                  sVec_c.Y() = 0.0;
+                  sVec_c.Z() = (double)sz/4.0;
+                  sVec_c = qtheta.RotateVector(sVec_c);
+                  // Skip if too close or inside the car
+                  // if (sVec.Z()<max_z && sVec.X()>min_x && sVec.X()<max_x && sVec.Y()>min_y && sVec.Y()<max_y) continue;
+                  // Initiate a space point
+                  multi_count = 0;
+                  for (auto s:*solution){
+                    sVec = sVec_c;
+                    sVec -= s->model_pose.Pos();
+                    if (sVec.Length()<s->near || sVec.Length()>s->far) continue;
+                    if (s->type=="camera"){
+                      if (sVec.Dot(s->nor1)<=0) continue;
+                      if (sVec.Dot(s->nor2)<=0) continue;
+                      if (sVec.Dot(s->nor3)<=0) continue;
+                      if (sVec.Dot(s->nor4)<=0) continue;
+                      
+                      // Redundancy check
+                      if (multi_count){
+                        score_solutions[i]+=1/power(2,multi_count);
+                        redun_ratio++;
+                      }else{
+                        score_solutions[i]++;
+                        cover_ratio++;
+                      }
+                      // s->score++;
+                      multi_count++;
+                    }else if(s->type=="ray"){
+                      if (acos(sVec.Dot(s->nor1)/sVec.Length()) > s->lidar_fov.Radian()) continue;
+                      // Redundancy check
+                      if (multi_count){
+                        //score_solutions[i]+=1/power(2,multi_count);
+                        if (!redun_flag) redun_ratio++;
+                        redun_flag=1;
+                      }else{
+                        if (stheta<4.1) score_solutions[i]+=0.1;
+                        //score_solutions[i]++;
+                        cover_ratio++;
+                      }
+                      multi_count++;
+                    }
+                  }
+                }
+              }
+            }
+            redun_ratio = redun_ratio / cover_ratio;
+            cover_ratio = cover_ratio / space_points;
+            std::cout<<" Top solution's cover ratio: "<<cover_ratio<<std::endl;
+            std::cout<<" Top solution's redundancy ratio: "<<redun_ratio<<std::endl;
             break;
           }
         }
@@ -948,21 +1056,6 @@ namespace gazebo
         solution_list[i] = nullptr;
       }
 
-        // TO DO
-        // if (s->Type()=="ray"){
-        //   sensors::RaySensorPtr laser = std::dynamic_pointer_cast<sensors::RaySensor>(s);
-        //   std::cout<<"A lidar" << std::endl;
-        //   std::cout<< "Name: "<<s->Name()<<std::endl;
-        //   std::cout<< "Type: "<<s->Type()<<std::endl;
-        //   std::cout << "  Range max: " << laser->RangeMax() << " m" << std::endl;
-        //   std::cout << "  Range min: " << laser->RangeMin() << " m" << std::endl;
-        //   std::cout << "  Range count: " << laser->RangeCount() << std::endl;
-        //   std::cout << "  Resolution: " << laser->RangeResolution() << " m" << std::endl;
-        //   std::cout << "  H angle max: " << laser->AngleMax().Degree() << " degrees" << std::endl;
-        //   std::cout << "  H angle min: " << laser->AngleMin().Degree() << " degrees" << std::endl;
-        //   std::cout << "  V angle max: " << laser->VerticalAngleMax().Degree() << " degrees" << std::endl;
-        //   std::cout << "  V angle min: " << laser->VerticalAngleMin().Degree() << " degrees" << std::endl;
-        // }
     }
 
     
@@ -1022,7 +1115,7 @@ ignition::math::Vector3d gen_random_angle(ignition::math::Vector3d type){
   return res;
 }
 
-int angle_punish(std::vector<s_info*>* solution, int num_sen){
+int angle_punish(std::vector<s_info*>* solution, int num_sen, double mina, double maxa){
   if (num_sen==1) return 0;
   double min_yaw = 10;
   double yaw_list[20];
@@ -1049,12 +1142,13 @@ int angle_punish(std::vector<s_info*>* solution, int num_sen){
   }
   for (int i=1; i<index; i++){
     // std::cout<<ranked_yaw_list[i]-ranked_yaw_list[i-1]<<std::endl;
-    if (ranked_yaw_list[i]-ranked_yaw_list[i-1] < M_PI/1.1/(double)num_sen) return 5000;    // Make sure all the sensors will have the seperate yaw to ensure cover ration
+    if (ranked_yaw_list[i]-ranked_yaw_list[i-1] < mina ||
+    ranked_yaw_list[i]-ranked_yaw_list[i-1] > maxa) return 5000;    // Make sure all the sensors will have the seperate yaw to ensure cover ration
   }
   return 0;
 }
 
-bool check_angle(std::vector<s_info*>* solution, int num_sen){
+bool check_angle(std::vector<s_info*>* solution, int num_sen, double mina, double maxa){
   if (num_sen==1) return true;
   double min_yaw = 10;
   double yaw_list[20];
@@ -1081,14 +1175,14 @@ bool check_angle(std::vector<s_info*>* solution, int num_sen){
   }
   for (int i=1; i<index; i++){
     // std::cout<<ranked_yaw_list[i]-ranked_yaw_list[i-1]<<std::endl;
-    if (ranked_yaw_list[i]-ranked_yaw_list[i-1] < M_PI/(double)num_sen
-    || ranked_yaw_list[i]-ranked_yaw_list[i-1] > M_PI/3.5) return false;    // Make sure all the sensors will have the seperate yaw to ensure cover ration
+    if (ranked_yaw_list[i]-ranked_yaw_list[i-1] < mina
+    || ranked_yaw_list[i]-ranked_yaw_list[i-1] > maxa) return false;    // Make sure all the sensors will have the seperate yaw to ensure cover ration
   }
   
   return true;
 }
 
-bool check_angle(std::vector<s_info> solution, int num_sen){
+bool check_angle(std::vector<s_info> solution, int num_sen, double mina, double maxa){
   if (num_sen==1) return true;
   double min_yaw = 10;
   double yaw_list[20];
@@ -1114,8 +1208,8 @@ bool check_angle(std::vector<s_info> solution, int num_sen){
   }
   for (int i=1; i<index; i++){
     //std::cout<<ranked_yaw_list[i]-ranked_yaw_list[i-1]<<std::endl;
-    if (ranked_yaw_list[i]-ranked_yaw_list[i-1] < M_PI/(double)num_sen
-    || ranked_yaw_list[i]-ranked_yaw_list[i-1] > M_PI/3.5) return false;    // Make sure all the sensors will have the seperate yaw to ensure cover ration
+    if (ranked_yaw_list[i]-ranked_yaw_list[i-1] < mina
+    || ranked_yaw_list[i]-ranked_yaw_list[i-1] > maxa) return false;    // Make sure all the sensors will have the seperate yaw to ensure cover ration
   }
   return true;
 }

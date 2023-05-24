@@ -48,13 +48,17 @@ public slots:
     void onButtonClicked();
 
 
-    private:
+    public:
         bool cover;
         bool redun;
         int n_solu;
         int opt_turns;
         double pro_cross;
         double pro_mut;
+        double adap_factor;
+        double max_angle;
+        double min_angle;
+        bool init;
 };
 
 namespace gazebo
@@ -72,11 +76,8 @@ namespace gazebo
 
       /// \brief Callback trigged when the button is pressed.
       protected slots: void OnButton1();
-
       protected slots: void OnButton2();
-
       protected slots: void OnButton3();
-
       protected slots: void OnButton4();
 
       public: void OnStats(ConstWorldStatisticsPtr &_msg);
